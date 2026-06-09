@@ -11,6 +11,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { Palette as C } from '@/constants/theme';
 import { ScreenHeader } from '@/components/screen-header';
+import { openNavigation } from '@/utils/navigation';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -219,9 +220,10 @@ interface SwipeableCardProps {
   onDeliver: (id: string) => void;
   onCancel: (id: string) => void;
   onCall: (phone: string) => void;
+  onNavigate: (address: string) => void;
 }
 
-function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall }: SwipeableCardProps) {
+function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate }: SwipeableCardProps) {
   const translateX = useSharedValue(0);
   const cardHeight = useSharedValue(220);
   const cardOpacity = useSharedValue(1);
@@ -320,20 +322,34 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall }: Swipeabl
           </View>
 
           <View style={cStyles.infoSection}>
-            <View style={cStyles.infoRow}>
+            <TouchableOpacity
+              style={cStyles.infoRow}
+              onPress={() => onNavigate(booking.address)}
+              activeOpacity={0.7}
+            >
               <Feather name="map-pin" size={13} color={C.primary} />
               <Text style={cStyles.infoText} numberOfLines={1}>{booking.address}</Text>
-            </View>
+              <Feather name="chevron-right" size={14} color={C.textMuted} />
+            </TouchableOpacity>
             <TouchableOpacity style={cStyles.infoRow} onPress={() => onCall(booking.phone)} activeOpacity={0.7}>
               <Feather name="phone" size={13} color={C.primary} />
               <Text style={[cStyles.infoText, { color: C.primary, fontWeight: '500' }]}>{booking.phone}</Text>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={cStyles.finishBtn} activeOpacity={0.85} onPress={() => onDeliver(booking.id)}>
-            <Feather name="check" size={16} color="#fff" />
-            <Text style={cStyles.finishBtnText}>Yakunlash</Text>
-          </TouchableOpacity>
+          <View style={cStyles.actions}>
+            <TouchableOpacity style={cStyles.finishBtn} activeOpacity={0.85} onPress={() => onDeliver(booking.id)}>
+              <Feather name="check" size={16} color="#fff" />
+              <Text style={cStyles.finishBtnText}>Yakunlash</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cStyles.navBtn}
+              activeOpacity={0.85}
+              onPress={() => onNavigate(booking.address)}
+            >
+              <Feather name="navigation" size={16} color={C.primary} />
+            </TouchableOpacity>
+          </View>
 
           <View style={cStyles.swipeHint}><View style={cStyles.swipeBar} /></View>
         </Animated.View>
@@ -373,8 +389,26 @@ const cStyles = StyleSheet.create({
   infoSection: { backgroundColor: C.bg, borderRadius: 12, padding: 12, gap: 8, marginBottom: 14 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   infoText: { flex: 1, fontSize: 13, color: C.textSecondary, lineHeight: 18 },
-  finishBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, gap: 8 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  finishBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    gap: 8,
+  },
   finishBtnText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
+  navBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: C.primarySoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   swipeHint: { alignItems: 'center', paddingTop: 10 },
   swipeBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border },
 });
@@ -454,6 +488,10 @@ export default function BookingsScreen() {
     Linking.openURL(`tel:${phone.replace(/\s/g, '')}`);
   }, []);
 
+  const handleNavigate = useCallback((address: string) => {
+    openNavigation({ address });
+  }, []);
+
   const counts = useMemo(() => ({
     active: bookings.filter((b) => b.status === 'active').length,
     delivered: bookings.filter((b) => b.status === 'delivered').length,
@@ -490,6 +528,7 @@ export default function BookingsScreen() {
                 onDeliver={handleDeliver}
                 onCancel={handleCancel}
                 onCall={handleCall}
+                onNavigate={handleNavigate}
               />
             </Animated.View>
           )}

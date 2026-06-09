@@ -1,10 +1,11 @@
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { Palette as C } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
 
 function TabIcon({
   name,
@@ -50,6 +51,20 @@ const tabStyles = StyleSheet.create({
 });
 
 export default function TabLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg }}>
+        <ActivityIndicator size="large" color={C.primary} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={{

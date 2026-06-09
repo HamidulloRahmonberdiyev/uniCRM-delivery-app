@@ -13,6 +13,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { Palette as C } from '@/constants/theme';
 import { ScreenHeader } from '@/components/screen-header';
+import { openNavigation } from '@/utils/navigation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -369,9 +370,7 @@ export default function ActiveOrdersScreen() {
   }, []);
 
   const handleNavigate = useCallback((address: string) => {
-    const query = encodeURIComponent(address);
-    const url = Platform.OS === 'ios' ? `maps://?q=${query}` : `geo:0,0?q=${query}`;
-    Linking.openURL(url).catch(() => Linking.openURL(`https://maps.google.com/?q=${query}`));
+    openNavigation({ address });
   }, []);
 
   const handleCall = useCallback((phone: string) => {

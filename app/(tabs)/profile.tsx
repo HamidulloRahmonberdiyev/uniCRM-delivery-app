@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Palette as C } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
 
 // ─── User data ────────────────────────────────────────────────────────────────
 
@@ -217,6 +219,7 @@ const sectionStyles = StyleSheet.create({
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { phone, signOut } = useAuth();
   const [notifications, setNotifications] = useState(true);
 
   const handleLogout = () => {
@@ -225,7 +228,10 @@ export default function ProfileScreen() {
       {
         text: 'Chiqish',
         style: 'destructive',
-        onPress: () => console.log('Logout pressed'),
+        onPress: async () => {
+          await signOut();
+          router.replace('/login');
+        },
       },
     ]);
   };
@@ -261,7 +267,7 @@ export default function ProfileScreen() {
 
         {/* Personal info */}
         <Section title="Shaxsiy ma'lumotlar">
-          <MenuRow icon="phone" label="Telefon" value={USER.phone} />
+          <MenuRow icon="phone" label="Telefon" value={phone ?? USER.phone} />
           <RowDivider />
           <MenuRow icon="mail" label="Email" value={USER.email} />
         </Section>
