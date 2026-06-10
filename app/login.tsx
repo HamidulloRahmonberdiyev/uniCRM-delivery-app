@@ -42,7 +42,7 @@ export default function LoginScreen() {
 
   const displayValue = formatUzPhone(digits);
   const phoneValid = isValidUzPhone(digits);
-  const passwordValid = password.trim().length >= 4;
+  const passwordValid = password.trim().length >= 5;
   const canSubmit = phoneValid && passwordValid;
 
   const handlePhoneChange = useCallback((text: string) => {
@@ -56,7 +56,7 @@ export default function LoginScreen() {
       return;
     }
     if (!passwordValid) {
-      setError("Parol kamida 4 ta belgidan iborat bo'lishi kerak");
+      setError("Parol kamida 5 ta belgidan iborat bo'lishi kerak");
       return;
     }
 

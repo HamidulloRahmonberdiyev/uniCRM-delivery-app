@@ -1,16 +1,28 @@
-import { Palette as C } from "@/constants/theme";
-import { openNavigation } from "@/utils/navigation";
-import { Feather } from "@expo/vector-icons";
-import Constants from "expo-constants";
-import { Image } from "expo-image";
+import {
+  DRIVER_MARKER_ANCHOR,
+  MapDriverMarker,
+} from '@/components/map-driver-marker';
+import { Palette as C } from '@/constants/theme';
+import { useDriverLocation } from '@/hooks/use-driver-location';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { notify } from '@/lib/notify';
+import { bookOrder, getActiveOrders } from '@/services/orders-api';
+import type { OrderListItem } from '@/types/order';
+import { type Coordinates, haversineDistanceKm } from '@/utils/geo';
+import { attachDistanceToOrders } from '@/utils/order';
+import { openNavigation } from '@/utils/navigation';
+import { Feather } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import { useFocusEffect } from 'expo-router';
 import React, {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-} from "react";
+} from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   Platform,
@@ -19,123 +31,59 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+} from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { height: SCREEN_H } = Dimensions.get("window");
+const { height: SCREEN_H } = Dimensions.get('window');
 
 const GOOGLE_MAPS_API_KEY =
   Constants.expoConfig?.extra?.googleMapsApiKey ||
   Constants.expoConfig?.android?.config?.googleMaps?.apiKey ||
-  "";
+  '';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface NearbyOrder {
-  id: string;
-  customerName: string;
-  address: string;
-  phone: string;
-  distance: string;
-  eta: string;
-  lat: number;
-  lng: number;
-}
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const NEARBY_ORDERS: NearbyOrder[] = [
-  {
-    id: "1",
-    customerName: "Alisher Karimov",
-    address: "Chilonzor, 3-kvartal, 15-uy",
-    phone: "+998 90 123 45 67",
-    distance: "1.2 km",
-    eta: "5 min",
-    lat: 41.2867,
-    lng: 69.2044,
-  },
-  {
-    id: "2",
-    customerName: "Zulfiya Rahimova",
-    address: "Yunusobod, Amir Temur ko'chasi, 108",
-    phone: "+998 91 987 65 43",
-    distance: "3.4 km",
-    eta: "12 min",
-    lat: 41.3252,
-    lng: 69.2856,
-  },
-  {
-    id: "3",
-    customerName: "Bobur Mirzayev",
-    address: "Mirzo Ulug'bek, Bunyodkor ko'chasi, 22",
-    phone: "+998 93 456 78 90",
-    distance: "5.8 km",
-    eta: "18 min",
-    lat: 41.34,
-    lng: 69.335,
-  },
-  {
-    id: "4",
-    customerName: "Nilufar Toshmatova",
-    address: "Shayxontohur, Navoiy ko'chasi, 7",
-    phone: "+998 97 111 22 33",
-    distance: "2.1 km",
-    eta: "8 min",
-    lat: 41.315,
-    lng: 69.248,
-  },
-];
-
-const DRIVER_LOCATION = { latitude: 41.3111, longitude: 69.2797 };
-
-const TASHKENT_CENTER = {
-  ...DRIVER_LOCATION,
+const FALLBACK_CENTER: Region = {
+  latitude: 41.3111,
+  longitude: 69.2797,
   latitudeDelta: 0.08,
   longitudeDelta: 0.08,
 };
+
+const MAP_DELTA = { latitudeDelta: 0.08, longitudeDelta: 0.08 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInitials(name: string) {
   return name
-    .split(" ")
+    .split(' ')
     .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
-// ─── Yetkazuvchi marker ───────────────────────────────────────────────────────
+function sortOrdersByDistance(
+  orders: OrderListItem[],
+  driverLocation: Coordinates | null,
+): OrderListItem[] {
+  if (!driverLocation) return orders;
 
-const DRIVER_MARKER_SIZE = 72;
-
-function DriverMarkerView() {
-  return (
-    <View style={driverMarkerStyles.wrapper} collapsable={false}>
-      <Image
-        source={require("@/assets/images/delivery.webp")}
-        style={driverMarkerStyles.image}
-        contentFit="contain"
-      />
-    </View>
-  );
+  return [...orders].sort((a, b) => {
+    const dist = (order: OrderListItem) => {
+      if (order.latitude == null || order.longitude == null) return Infinity;
+      return haversineDistanceKm(driverLocation, {
+        latitude: order.latitude,
+        longitude: order.longitude,
+      });
+    };
+    return dist(a) - dist(b);
+  });
 }
 
-const driverMarkerStyles = StyleSheet.create({
-  wrapper: {
-    width: DRIVER_MARKER_SIZE,
-    height: DRIVER_MARKER_SIZE,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  image: {
-    width: DRIVER_MARKER_SIZE,
-    height: DRIVER_MARKER_SIZE,
-  },
-});
+function hasCoordinates(order: OrderListItem): boolean {
+  return order.latitude != null && order.longitude != null;
+}
 
-// ─── Buyurtma marker (oddiy pin) ──────────────────────────────────────────────
+// ─── Buyurtma marker ─────────────────────────────────────────────────────────
 
 function OrderMarkerView() {
   return (
@@ -149,17 +97,17 @@ function OrderMarkerView() {
 }
 
 const orderMarkerStyles = StyleSheet.create({
-  wrapper: { alignItems: "center", width: 32, height: 40 },
+  wrapper: { alignItems: 'center', width: 32, height: 40 },
   pin: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#E67E22",
+    backgroundColor: '#E67E22',
     borderWidth: 2.5,
-    borderColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3,
@@ -169,7 +117,7 @@ const orderMarkerStyles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#fff",
+    backgroundColor: '#fff',
   },
   pinTail: {
     width: 0,
@@ -177,14 +125,14 @@ const orderMarkerStyles = StyleSheet.create({
     borderLeftWidth: 5,
     borderRightWidth: 5,
     borderTopWidth: 7,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: "#E67E22",
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#E67E22',
     marginTop: -1,
   },
 });
 
-// ─── Map fallback (API key yo'q yoki xarita yuklanmasa) ───────────────────────
+// ─── Map fallback ─────────────────────────────────────────────────────────────
 
 function MapFallback({ insetsTop }: { insetsTop: number }) {
   return (
@@ -194,7 +142,7 @@ function MapFallback({ insetsTop }: { insetsTop: number }) {
       </View>
       <Text style={fallbackStyles.title}>Xarita sozlanmagan</Text>
       <Text style={fallbackStyles.subtitle}>
-        Android APK uchun Google Maps API kaliti kerak.{"\n"}
+        Android APK uchun Google Maps API kaliti kerak.{'\n'}
         .env faylida EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ni kiriting va APK ni qayta
         build qiling.
       </Text>
@@ -205,31 +153,31 @@ function MapFallback({ insetsTop }: { insetsTop: number }) {
 const fallbackStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1a2a3a",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: '#1a2a3a',
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 32,
   },
   iconCircle: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "rgba(0,136,204,0.15)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: 'rgba(0,136,204,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 20,
   },
   title: {
     fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
+    fontWeight: '700',
+    color: '#fff',
     marginBottom: 10,
-    textAlign: "center",
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 13,
-    color: "rgba(255,255,255,0.7)",
-    textAlign: "center",
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
     lineHeight: 20,
   },
 });
@@ -241,11 +189,13 @@ function NearbyOrderCard({
   onBook,
   onFocus,
   onNavigate,
+  booking,
 }: {
-  order: NearbyOrder;
+  order: OrderListItem;
   onBook: (id: string) => void;
-  onFocus: (order: NearbyOrder) => void;
-  onNavigate: (order: NearbyOrder) => void;
+  onFocus: (order: OrderListItem) => void;
+  onNavigate: (order: OrderListItem) => void;
+  booking?: boolean;
 }) {
   return (
     <TouchableOpacity
@@ -269,27 +219,33 @@ function NearbyOrderCard({
               {order.address}
             </Text>
           </View>
+          <View style={cardStyles.timeRow}>
+            <Feather name="clock" size={11} color={C.textMuted} />
+            <Text style={cardStyles.timeText} numberOfLines={1}>
+              {order.dateTimeLabel}
+            </Text>
+          </View>
         </View>
       </View>
       <View style={cardStyles.bottom}>
         <View style={cardStyles.stats}>
           <View style={cardStyles.stat}>
             <Feather name="navigation" size={12} color={C.primary} />
-            <Text style={cardStyles.statVal}>{order.distance}</Text>
-          </View>
-          <View style={cardStyles.statDot} />
-          <View style={cardStyles.stat}>
-            <Feather name="clock" size={12} color={C.primary} />
-            <Text style={cardStyles.statVal}>{order.eta}</Text>
+            <Text style={cardStyles.statVal}>{order.distance ?? '—'}</Text>
           </View>
         </View>
         <View style={cardStyles.actions}>
           <TouchableOpacity
-            style={cardStyles.bookBtn}
+            style={[cardStyles.bookBtn, booking && cardStyles.bookBtnDisabled]}
             activeOpacity={0.85}
             onPress={() => onBook(order.id)}
+            disabled={booking}
           >
-            <Text style={cardStyles.bookBtnText}>Band qilish</Text>
+            {booking ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={cardStyles.bookBtnText}>Band qilish</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={cardStyles.navBtn}
@@ -311,61 +267,67 @@ const cardStyles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
     marginHorizontal: 16,
-    shadowColor: "#1B2A3D",
+    shadowColor: '#1B2A3D',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 3,
   },
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
     backgroundColor: C.primary,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  avatarText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  avatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   info: { flex: 1, marginLeft: 10 },
   name: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
     color: C.textPrimary,
     marginBottom: 2,
   },
-  addressRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   address: { flex: 1, fontSize: 12, color: C.textMuted },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  timeText: { flex: 1, fontSize: 11, color: C.textSecondary, fontWeight: '500' },
   bottom: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
   },
-  actions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  stats: { flexDirection: "row", alignItems: "center", gap: 6 },
-  stat: { flexDirection: "row", alignItems: "center", gap: 4 },
-  statVal: { fontSize: 12, fontWeight: "600", color: C.textPrimary },
-  statDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: C.textMuted,
-  },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stats: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statVal: { fontSize: 12, fontWeight: '600', color: C.textPrimary },
   bookBtn: {
     backgroundColor: C.primary,
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 9,
+    minWidth: 108,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 36,
   },
-  bookBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  bookBtnDisabled: { opacity: 0.85 },
+  bookBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   navBtn: {
     width: 38,
     height: 38,
     borderRadius: 10,
     backgroundColor: C.primarySoft,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
@@ -374,10 +336,49 @@ const cardStyles = StyleSheet.create({
 export default function LocationScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
-  const [orders, setOrders] = useState(NEARBY_ORDERS);
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [bookingId, setBookingId] = useState<string | null>(null);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  const [driverMarkerReady, setDriverMarkerReady] = useState(false);
+  const isFirstFocus = useRef(true);
+  const { location, refreshLocation } = useDriverLocation();
 
-  // Custom markerlar birinchi renderda snapshot olishi kerak
+  const mapOrders = useMemo(
+    () => orders.filter(hasCoordinates),
+    [orders],
+  );
+
+  const driverRegion = useMemo<Region>(() => {
+    if (location) {
+      return { ...location, ...MAP_DELTA };
+    }
+    return FALLBACK_CENTER;
+  }, [location]);
+
+  const loadOrders = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        const driverLocation = location ?? (await refreshLocation());
+        const data = await getActiveOrders();
+        const withDistance = attachDistanceToOrders(data, driverLocation);
+        setOrders(sortOrdersByDistance(withDistance, driverLocation));
+      } catch (error) {
+        setOrders([]);
+        if (!silent) {
+          notify.error(
+            'Xatolik',
+            error instanceof Error ? error.message : 'Buyurtmalarni yuklab bo\'lmadi',
+          );
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [location, refreshLocation],
+  );
+
   useEffect(() => {
     const timer = setTimeout(() => setTracksViewChanges(false), 800);
     return () => clearTimeout(timer);
@@ -387,7 +388,33 @@ export default function LocationScreen() {
     setTracksViewChanges(true);
     const timer = setTimeout(() => setTracksViewChanges(false), 600);
     return () => clearTimeout(timer);
-  }, [orders.length]);
+  }, [mapOrders.length, location?.latitude, location?.longitude]);
+
+  useEffect(() => {
+    loadOrders(false);
+  }, [loadOrders]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        return;
+      }
+      loadOrders(true);
+    }, [loadOrders]),
+  );
+
+  useEffect(() => {
+    if (!location) return;
+    setDriverMarkerReady(false);
+    mapRef.current?.animateToRegion({ ...location, ...MAP_DELTA }, 500);
+  }, [location?.latitude, location?.longitude]);
+
+  const handleDriverMarkerLayout = useCallback(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => setDriverMarkerReady(true), 150);
+    });
+  }, []);
 
   const handleMapReady = useCallback(() => {
     setTracksViewChanges(true);
@@ -395,26 +422,40 @@ export default function LocationScreen() {
   }, []);
 
   const canShowMap = useMemo(() => {
-    if (Platform.OS === "web") return false;
-    // Expo Go has built-in key; standalone Android needs explicit key
-    if (Constants.appOwnership === "expo") return true;
-    if (Platform.OS === "android") return Boolean(GOOGLE_MAPS_API_KEY);
+    if (Platform.OS === 'web') return false;
+    if (Constants.appOwnership === 'expo') return true;
+    if (Platform.OS === 'android') return Boolean(GOOGLE_MAPS_API_KEY);
     return true;
   }, []);
 
-  const mapProvider = Platform.OS === "android" ? PROVIDER_GOOGLE : undefined;
+  const mapProvider = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
 
-  const handleBook = useCallback((id: string) => {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
-  }, []);
+  const handleBook = useCallback(
+    async (id: string) => {
+      setBookingId(id);
+      try {
+        await bookOrder(id);
+        setOrders((prev) => prev.filter((o) => o.id !== id));
+        notify.success('Band qilindi', 'Buyurtma muvaffaqiyatli band qilindi');
+      } catch (error) {
+        notify.error(
+          'Xatolik',
+          error instanceof Error ? error.message : 'Band qilish amalga oshmadi',
+        );
+      } finally {
+        setBookingId(null);
+      }
+    },
+    [],
+  );
 
   const handleFocus = useCallback(
-    (order: NearbyOrder) => {
-      if (!canShowMap) return;
+    (order: OrderListItem) => {
+      if (!canShowMap || !hasCoordinates(order)) return;
       mapRef.current?.animateToRegion(
         {
-          latitude: order.lat,
-          longitude: order.lng,
+          latitude: order.latitude!,
+          longitude: order.longitude!,
           latitudeDelta: 0.015,
           longitudeDelta: 0.015,
         },
@@ -424,13 +465,31 @@ export default function LocationScreen() {
     [canShowMap],
   );
 
-  const handleNavigate = useCallback((order: NearbyOrder) => {
+  const handleNavigate = useCallback((order: OrderListItem) => {
     openNavigation({
       address: order.address,
-      latitude: order.lat,
-      longitude: order.lng,
+      latitude: order.latitude,
+      longitude: order.longitude,
     });
   }, []);
+
+  const handleCenterOnDriver = useCallback(() => {
+    mapRef.current?.animateToRegion(driverRegion, 500);
+  }, [driverRegion]);
+
+  const { refreshControl } = useRefreshControl(() => loadOrders(true));
+
+  const listHeader = (
+    <>
+      <View style={styles.panelHandle}>
+        <View style={styles.handleBar} />
+      </View>
+      <View style={styles.panelHeader}>
+        <Text style={styles.panelTitle}>Yaqin buyurtmalar</Text>
+        <Text style={styles.panelCount}>{orders.length} ta</Text>
+      </View>
+    </>
+  );
 
   const mapHeight = SCREEN_H * 0.48;
 
@@ -448,7 +507,7 @@ export default function LocationScreen() {
             ref={mapRef}
             style={StyleSheet.absoluteFillObject}
             provider={mapProvider}
-            initialRegion={TASHKENT_CENTER}
+            initialRegion={driverRegion}
             mapType="satellite"
             showsUserLocation={false}
             showsMyLocationButton={false}
@@ -456,22 +515,27 @@ export default function LocationScreen() {
             loadingEnabled
             onMapReady={handleMapReady}
           >
-            <Marker
-              coordinate={DRIVER_LOCATION}
-              title="Sizning joylashuvingiz"
-              description="Yetkazuvchi"
-              anchor={{ x: 0.5, y: 0.38 }}
-              zIndex={1000}
-              tracksViewChanges={tracksViewChanges}
-            >
-              <DriverMarkerView />
-            </Marker>
-            {orders.map((o) => (
+            {location ? (
               <Marker
-                key={o.id}
-                coordinate={{ latitude: o.lat, longitude: o.lng }}
-                title={o.customerName}
-                description={o.address}
+                coordinate={location}
+                title="Sizning joylashuvingiz"
+                description="Yetkazuvchi"
+                anchor={DRIVER_MARKER_ANCHOR}
+                zIndex={1000}
+                tracksViewChanges={!driverMarkerReady}
+              >
+                <MapDriverMarker onLayout={handleDriverMarkerLayout} />
+              </Marker>
+            ) : null}
+            {mapOrders.map((order) => (
+              <Marker
+                key={order.id}
+                coordinate={{
+                  latitude: order.latitude!,
+                  longitude: order.longitude!,
+                }}
+                title={order.customerName}
+                description={order.address}
                 anchor={{ x: 0.5, y: 0.95 }}
                 zIndex={100}
                 tracksViewChanges={tracksViewChanges}
@@ -506,9 +570,7 @@ export default function LocationScreen() {
           <TouchableOpacity
             style={[styles.myLocBtn, { bottom: 28 }]}
             activeOpacity={0.8}
-            onPress={() =>
-              mapRef.current?.animateToRegion(TASHKENT_CENTER, 500)
-            }
+            onPress={handleCenterOnDriver}
           >
             <Feather name="crosshair" size={18} color={C.primary} />
           </TouchableOpacity>
@@ -516,32 +578,35 @@ export default function LocationScreen() {
       </View>
 
       <View style={styles.bottomPanel}>
-        <View style={styles.panelHandle}>
-          <View style={styles.handleBar} />
-        </View>
-        <View style={styles.panelHeader}>
-          <Text style={styles.panelTitle}>Yaqin buyurtmalar</Text>
-          <Text style={styles.panelCount}>{orders.length} ta</Text>
-        </View>
         <FlatList
           data={orders}
           keyExtractor={(i) => i.id}
+          ListHeaderComponent={listHeader}
           renderItem={({ item }) => (
             <NearbyOrderCard
               order={item}
               onBook={handleBook}
               onFocus={handleFocus}
               onNavigate={handleNavigate}
+              booking={bookingId === item.id}
             />
           )}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <View style={styles.emptyBox}>
-              <Feather name="map-pin" size={24} color={C.textMuted} />
-              <Text style={styles.emptyText}>Atrofda buyurtma yo'q</Text>
-            </View>
+            loading ? (
+              <View style={styles.emptyBox}>
+                <ActivityIndicator size="large" color={C.primary} />
+                <Text style={styles.emptyText}>Yuklanmoqda...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyBox}>
+                <Feather name="map-pin" size={24} color={C.textMuted} />
+                <Text style={styles.emptyText}>Atrofda buyurtma yo&apos;q</Text>
+              </View>
+            )
           }
+          refreshControl={refreshControl}
         />
       </View>
     </View>
@@ -550,9 +615,9 @@ export default function LocationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  mapContainer: { overflow: "hidden", backgroundColor: "#1a2a3a" },
+  mapContainer: { overflow: 'hidden', backgroundColor: '#1a2a3a' },
   mapOverlay: {
-    position: "absolute",
+    position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
@@ -560,54 +625,54 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   mapHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   mapTitle: {
     fontSize: 24,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: '800',
+    color: '#fff',
     letterSpacing: -0.4,
-    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
   mapSubtitle: {
     fontSize: 13,
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "500",
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '500',
     marginTop: 2,
-    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowColor: 'rgba(0,0,0,0.4)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
   mapLive: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 6,
   },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ECC71" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ECC71' },
   liveText: {
     fontSize: 11,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: '800',
+    color: '#fff',
     letterSpacing: 0.6,
   },
   myLocBtn: {
-    position: "absolute",
+    position: 'absolute',
     right: 16,
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -619,13 +684,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     marginTop: -18,
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 12,
   },
-  panelHandle: { alignItems: "center", paddingTop: 10, paddingBottom: 6 },
+  panelHandle: { alignItems: 'center', paddingTop: 10, paddingBottom: 6 },
   handleBar: {
     width: 40,
     height: 4,
@@ -633,16 +698,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.divider,
   },
   panelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 14,
   },
-  panelTitle: { fontSize: 17, fontWeight: "700", color: C.textPrimary },
-  panelCount: { fontSize: 13, fontWeight: "600", color: C.textMuted },
+  panelTitle: { fontSize: 17, fontWeight: '700', color: C.textPrimary },
+  panelCount: { fontSize: 13, fontWeight: '600', color: C.textMuted },
   listContent: { paddingBottom: 20 },
-  emptyBox: { alignItems: "center", paddingTop: 40, gap: 10 },
+  emptyBox: { alignItems: 'center', paddingTop: 40, gap: 10 },
   emptyText: { fontSize: 14, color: C.textMuted },
 });

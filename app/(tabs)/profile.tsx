@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -6,24 +6,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   Switch,
-  Alert,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Palette as C } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
-
-// ─── User data ────────────────────────────────────────────────────────────────
-
-const USER = {
-  name: 'Admin',
-  phone: '+998 90 000 00 00',
-  email: 'admin@unigo.uz',
-  deliveries: 142,
-  rating: 4.8,
-};
+import { notify } from '@/lib/notify';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { getUserProfile } from '@/services/profile-api';
+import { getSupplierStats } from '@/services/supplier-api';
+import type { User } from '@/types/auth';
 
 function getInitials(name: string): string {
   return name
@@ -39,17 +34,23 @@ function StatCard({
   icon,
   value,
   label,
+  loading = false,
 }: {
   icon: React.ComponentProps<typeof Feather>['name'];
   value: string | number;
   label: string;
+  loading?: boolean;
 }) {
   return (
     <View style={statStyles.card}>
       <View style={statStyles.iconCircle}>
         <Feather name={icon} size={20} color={C.primary} />
       </View>
-      <Text style={statStyles.value}>{value}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={C.primary} style={statStyles.loader} />
+      ) : (
+        <Text style={statStyles.value}>{value}</Text>
+      )}
       <Text style={statStyles.label}>{label}</Text>
     </View>
   );
@@ -84,6 +85,10 @@ const statStyles = StyleSheet.create({
     color: C.textPrimary,
     marginBottom: 4,
     letterSpacing: -0.5,
+  },
+  loader: {
+    marginBottom: 4,
+    height: 31,
   },
   label: {
     fontSize: 12,
@@ -219,11 +224,48 @@ const sectionStyles = StyleSheet.create({
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { phone, signOut } = useAuth();
+  const { user, signOut } = useAuth();
+  const [profile, setProfile] = useState<User | null>(null);
   const [notifications, setNotifications] = useState(true);
+  const [activeOrders, setActiveOrders] = useState(0);
+  const [deliveredOrders, setDeliveredOrders] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const displayName = profile?.name ?? user?.name ?? '—';
+  const displayPhone = profile?.phone ?? user?.phone ?? '—';
+  const displayEmail = profile?.email ?? user?.email ?? '—';
+  const displayUsername = profile?.username ?? user?.username ?? null;
+  const roleName = profile?.roles?.[0]?.name ?? 'Yetkazuvchi';
+
+  const loadProfileData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [profileData, stats] = await Promise.all([
+        getUserProfile(),
+        getSupplierStats(),
+      ]);
+      setProfile(profileData);
+      setActiveOrders(stats.active_orders);
+      setDeliveredOrders(stats.delivered_orders);
+    } catch {
+      setProfile(null);
+      setActiveOrders(0);
+      setDeliveredOrders(0);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  const { refreshControl } = useRefreshControl(() => loadProfileData(true));
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileData(false);
+    }, [loadProfileData]),
+  );
 
   const handleLogout = () => {
-    Alert.alert('Chiqish', "Tizimdan chiqishni tasdiqlaysizmi?", [
+    notify.confirm('Chiqish', "Tizimdan chiqishni tasdiqlaysizmi?", [
       { text: 'Bekor qilish', style: 'cancel' },
       {
         text: 'Chiqish',
@@ -243,33 +285,58 @@ export default function ProfileScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={refreshControl}
       >
         {/* Profile header */}
         <View style={[styles.profileHeader, { paddingTop: insets.top + 24 }]}>
           <View style={styles.avatarRing}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarInitials}>{getInitials(USER.name)}</Text>
+              {loading && !profile ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.avatarInitials}>{getInitials(displayName)}</Text>
+              )}
             </View>
           </View>
-          <Text style={styles.userName}>{USER.name}</Text>
+          {loading && !profile ? (
+            <ActivityIndicator color={C.primary} style={styles.nameLoader} />
+          ) : (
+            <Text style={styles.userName}>{displayName}</Text>
+          )}
           <View style={styles.roleBadge}>
             <Feather name="shield" size={11} color={C.primary} />
-            <Text style={styles.roleText}>Yetkazuvchi</Text>
+            <Text style={styles.roleText}>{roleName}</Text>
           </View>
         </View>
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <StatCard icon="package" value={USER.deliveries} label="Yetkazilgan" />
+          <StatCard
+            icon="zap"
+            value={activeOrders}
+            label="Faol buyurtmalar"
+            loading={loading}
+          />
           <View style={styles.statsSpacer} />
-          <StatCard icon="star" value={USER.rating} label="Reyting" />
+          <StatCard
+            icon="package"
+            value={deliveredOrders}
+            label="Yetkazilgan"
+            loading={loading}
+          />
         </View>
 
         {/* Personal info */}
         <Section title="Shaxsiy ma'lumotlar">
-          <MenuRow icon="phone" label="Telefon" value={phone ?? USER.phone} />
+          <MenuRow icon="phone" label="Telefon" value={displayPhone} />
           <RowDivider />
-          <MenuRow icon="mail" label="Email" value={USER.email} />
+          <MenuRow icon="mail" label="Email" value={displayEmail} />
+          {displayUsername ? (
+            <>
+              <RowDivider />
+              <MenuRow icon="user" label="Login" value={displayUsername} />
+            </>
+          ) : null}
         </Section>
 
         {/* Settings */}
@@ -365,6 +432,10 @@ const styles = StyleSheet.create({
     color: C.primary,
     marginBottom: 10,
     letterSpacing: -0.3,
+  },
+  nameLoader: {
+    marginBottom: 10,
+    height: 28,
   },
   roleBadge: {
     flexDirection: 'row',

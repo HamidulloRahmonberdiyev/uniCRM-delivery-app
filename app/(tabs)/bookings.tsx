@@ -7,10 +7,21 @@ import {
   StyleSheet,
   Dimensions,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
 import { Palette as C } from '@/constants/theme';
 import { ScreenHeader } from '@/components/screen-header';
+import { useAuth } from '@/contexts/auth-context';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import {
+  completeBookedOrder,
+  fetchBookingsData,
+  releaseBookedOrder,
+} from '@/services/orders-api';
+import type { BookingItem, BookingStatus } from '@/types/booking';
+import { notify } from '@/lib/notify';
 import { openNavigation } from '@/utils/navigation';
 import Animated, {
   useSharedValue,
@@ -29,86 +40,6 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 const { width: SCREEN_W } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_W * 0.3;
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type BookingStatus = 'active' | 'delivered' | 'cancelled';
-
-interface Booking {
-  id: string;
-  customerName: string;
-  address: string;
-  phone: string;
-  items: number;
-  total: string;
-  bookedAt: string;
-  status: BookingStatus;
-}
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const INITIAL_BOOKINGS: Booking[] = [
-  {
-    id: '1',
-    customerName: 'Jasur Abdullayev',
-    address: 'Chilonzor, 9-kvartal, 44-uy',
-    phone: '+998 90 111 22 33',
-    items: 3,
-    total: "185 000 so'm",
-    bookedAt: '10:30',
-    status: 'active',
-  },
-  {
-    id: '2',
-    customerName: 'Dilnoza Saidova',
-    address: 'Yunusobod, 7-kvartal, 12-uy',
-    phone: '+998 91 444 55 66',
-    items: 1,
-    total: "52 000 so'm",
-    bookedAt: '11:15',
-    status: 'active',
-  },
-  {
-    id: '3',
-    customerName: 'Sherzod Normatov',
-    address: 'Sergeli, 3-kvartal, 8-uy',
-    phone: '+998 93 777 88 99',
-    items: 5,
-    total: "340 000 so'm",
-    bookedAt: '12:45',
-    status: 'active',
-  },
-  {
-    id: '4',
-    customerName: 'Kamola Rustamova',
-    address: "Mirzo Ulug'bek, Buyuk Ipak Yo'li, 22",
-    phone: '+998 97 222 33 44',
-    items: 2,
-    total: "98 000 so'm",
-    bookedAt: '09:20',
-    status: 'active',
-  },
-  {
-    id: '5',
-    customerName: 'Olim Tursunov',
-    address: 'Olmazor, 14-kvartal, 7-uy',
-    phone: '+998 95 333 22 11',
-    items: 4,
-    total: "256 000 so'm",
-    bookedAt: '08:10',
-    status: 'delivered',
-  },
-  {
-    id: '6',
-    customerName: 'Gulnora Karimova',
-    address: "Yakkasaroy, Shota Rustaveli ko'chasi, 3",
-    phone: '+998 90 777 66 55',
-    items: 1,
-    total: "45 000 so'm",
-    bookedAt: '07:30',
-    status: 'cancelled',
-  },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInitials(name: string) {
@@ -118,7 +49,7 @@ function getInitials(name: string) {
 // ─── Segment tabs ─────────────────────────────────────────────────────────────
 
 const TABS: { key: BookingStatus; label: string; icon: React.ComponentProps<typeof Feather>['name'] }[] = [
-  { key: 'active', label: 'Faol', icon: 'zap' },
+  { key: 'active', label: 'Jarayonda', icon: 'zap' },
   { key: 'delivered', label: 'Yakunlangan', icon: 'check-circle' },
   { key: 'cancelled', label: 'Bekor', icon: 'x-circle' },
 ];
@@ -216,14 +147,24 @@ const segStyles = StyleSheet.create({
 // ─── Swipeable Booking Card ───────────────────────────────────────────────────
 
 interface SwipeableCardProps {
-  booking: Booking;
+  booking: BookingItem;
   onDeliver: (id: string) => void;
-  onCancel: (id: string) => void;
+  onRelease: (id: string) => void;
   onCall: (phone: string) => void;
-  onNavigate: (address: string) => void;
+  onNavigate: (booking: BookingItem) => void;
+  onOpen: (id: string) => void;
+  actionLoading?: boolean;
 }
 
-function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate }: SwipeableCardProps) {
+function SwipeableBookingCard({
+  booking,
+  onDeliver,
+  onRelease,
+  onCall,
+  onNavigate,
+  onOpen,
+  actionLoading,
+}: SwipeableCardProps) {
   const translateX = useSharedValue(0);
   const cardHeight = useSharedValue(220);
   const cardOpacity = useSharedValue(1);
@@ -234,8 +175,16 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
   }, [booking.id, onDeliver]);
 
   const dismissLeft = useCallback(() => {
-    onCancel(booking.id);
-  }, [booking.id, onCancel]);
+    onRelease(booking.id);
+  }, [booking.id, onRelease]);
+
+  const openDetail = useCallback(() => {
+    onOpen(booking.id);
+  }, [booking.id, onOpen]);
+
+  const tapGesture = Gesture.Tap().onEnd(() => {
+    runOnJS(openDetail)();
+  });
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
@@ -262,6 +211,8 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
         translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
       }
     });
+
+  const cardGesture = Gesture.Exclusive(panGesture, tapGesture);
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -297,12 +248,12 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
           <Text style={swipeBg.text}>Yetkazildi</Text>
         </Animated.View>
         <Animated.View style={[swipeBg.left, leftBgStyle]}>
-          <Text style={swipeBg.textDanger}>Bekor</Text>
-          <Feather name="x-circle" size={22} color={C.danger} />
+          <Text style={swipeBg.textMuted}>Qaytarish</Text>
+          <Feather name="corner-up-left" size={22} color={C.textSecondary} />
         </Animated.View>
       </View>
 
-      <GestureDetector gesture={panGesture}>
+      <GestureDetector gesture={cardGesture}>
         <Animated.View style={[cStyles.card, cardAnimatedStyle]}>
           <View style={cStyles.header}>
             <View style={cStyles.avatar}>
@@ -312,10 +263,10 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
               <Text style={cStyles.name} numberOfLines={1}>{booking.customerName}</Text>
               <View style={cStyles.meta}>
                 <Feather name="package" size={11} color={C.textMuted} />
-                <Text style={cStyles.metaText}>{booking.items} ta</Text>
+                <Text style={cStyles.metaText}>{booking.quantity} ta</Text>
                 <Text style={cStyles.metaDot}>·</Text>
                 <Feather name="clock" size={11} color={C.textMuted} />
-                <Text style={cStyles.metaText}>{booking.bookedAt}</Text>
+                <Text style={cStyles.metaText} numberOfLines={1}>{booking.bookedAtLabel}</Text>
               </View>
             </View>
             <Text style={cStyles.totalText}>{booking.total}</Text>
@@ -324,28 +275,44 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
           <View style={cStyles.infoSection}>
             <TouchableOpacity
               style={cStyles.infoRow}
-              onPress={() => onNavigate(booking.address)}
+              onPress={() => onNavigate(booking)}
               activeOpacity={0.7}
             >
               <Feather name="map-pin" size={13} color={C.primary} />
               <Text style={cStyles.infoText} numberOfLines={1}>{booking.address}</Text>
               <Feather name="chevron-right" size={14} color={C.textMuted} />
             </TouchableOpacity>
-            <TouchableOpacity style={cStyles.infoRow} onPress={() => onCall(booking.phone)} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={cStyles.infoRow}
+              onPress={() => onCall(booking.phone)}
+              activeOpacity={0.7}
+              disabled={!booking.phone}
+            >
               <Feather name="phone" size={13} color={C.primary} />
               <Text style={[cStyles.infoText, { color: C.primary, fontWeight: '500' }]}>{booking.phone}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={cStyles.actions}>
-            <TouchableOpacity style={cStyles.finishBtn} activeOpacity={0.85} onPress={() => onDeliver(booking.id)}>
-              <Feather name="check" size={16} color="#fff" />
-              <Text style={cStyles.finishBtnText}>Yakunlash</Text>
+            <TouchableOpacity
+              style={[cStyles.finishBtn, actionLoading && cStyles.finishBtnDisabled]}
+              activeOpacity={0.85}
+              onPress={() => onDeliver(booking.id)}
+              disabled={actionLoading}
+            >
+              {actionLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Feather name="check" size={16} color="#fff" />
+                  <Text style={cStyles.finishBtnText}>Yakunlash</Text>
+                </>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
               style={cStyles.navBtn}
               activeOpacity={0.85}
-              onPress={() => onNavigate(booking.address)}
+              onPress={() => onNavigate(booking)}
             >
               <Feather name="navigation" size={16} color={C.primary} />
             </TouchableOpacity>
@@ -361,9 +328,9 @@ function SwipeableBookingCard({ booking, onDeliver, onCancel, onCall, onNavigate
 const swipeBg = StyleSheet.create({
   container: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', borderRadius: 18, overflow: 'hidden' },
   right: { flex: 1, backgroundColor: '#2ECC71', flexDirection: 'row', alignItems: 'center', paddingLeft: 28, gap: 10, borderRadius: 18 },
-  left: { flex: 1, backgroundColor: C.dangerSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 28, gap: 10, borderRadius: 18 },
+  left: { flex: 1, backgroundColor: C.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 28, gap: 10, borderRadius: 18 },
   text: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  textDanger: { color: C.danger, fontSize: 15, fontWeight: '700' },
+  textMuted: { color: C.textSecondary, fontSize: 15, fontWeight: '700' },
 });
 
 const cStyles = StyleSheet.create({
@@ -399,6 +366,10 @@ const cStyles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 14,
     gap: 8,
+    minHeight: 48,
+  },
+  finishBtnDisabled: {
+    opacity: 0.85,
   },
   finishBtnText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
   navBtn: {
@@ -415,10 +386,20 @@ const cStyles = StyleSheet.create({
 
 // ─── Static card for delivered / cancelled ────────────────────────────────────
 
-function StaticBookingCard({ booking }: { booking: Booking }) {
+function StaticBookingCard({
+  booking,
+  onOpen,
+}: {
+  booking: BookingItem;
+  onOpen: (id: string) => void;
+}) {
   const isDone = booking.status === 'delivered';
   return (
-    <View style={[staticStyles.card, !isDone && staticStyles.cardCancelled]}>
+    <TouchableOpacity
+      style={[staticStyles.card, !isDone && staticStyles.cardCancelled]}
+      activeOpacity={0.85}
+      onPress={() => onOpen(booking.id)}
+    >
       <View style={staticStyles.row}>
         <View style={[staticStyles.avatar, !isDone && { backgroundColor: C.textMuted }]}>
           <Text style={staticStyles.avatarText}>{getInitials(booking.customerName)}</Text>
@@ -436,9 +417,9 @@ function StaticBookingCard({ booking }: { booking: Booking }) {
       </View>
       <View style={staticStyles.bottom}>
         <Text style={staticStyles.total}>{booking.total}</Text>
-        <Text style={staticStyles.time}>{booking.bookedAt}</Text>
+        <Text style={staticStyles.time}>{booking.bookedAtLabel}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -473,34 +454,110 @@ const staticStyles = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function BookingsScreen() {
-  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+  const { user } = useAuth();
+  const [activeBookings, setActiveBookings] = useState<BookingItem[]>([]);
+  const [historyBookings, setHistoryBookings] = useState<BookingItem[]>([]);
   const [tab, setTab] = useState<BookingStatus>('active');
+  const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState<string | null>(null);
 
-  const handleDeliver = useCallback((id: string) => {
-    setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: 'delivered' as BookingStatus } : b));
+  const loadBookings = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const { active, history } = await fetchBookingsData();
+      setActiveBookings(active);
+      setHistoryBookings(history);
+    } catch (error) {
+      if (!silent) {
+        notify.error(
+          'Xatolik',
+          error instanceof Error ? error.message : 'Bronlarni yuklab bo\'lmadi',
+        );
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
 
-  const handleCancel = useCallback((id: string) => {
-    setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: 'cancelled' as BookingStatus } : b));
-  }, []);
+  const { refreshControl } = useRefreshControl(() => loadBookings(true));
+
+  useFocusEffect(
+    useCallback(() => {
+      loadBookings(false);
+    }, [loadBookings]),
+  );
+
+  const handleDeliver = useCallback(async (id: string) => {
+    const booking = activeBookings.find((b) => b.id === id);
+    const supplierId = booking?.supplierId ?? user?.id;
+
+    if (!supplierId) {
+      notify.error('Xatolik', 'Yetkazib beruvchi aniqlanmadi');
+      return;
+    }
+
+    setActiveBookings((prev) => prev.filter((b) => b.id !== id));
+    setActionId(id);
+    try {
+      await completeBookedOrder(id, supplierId);
+      await loadBookings(true);
+    } catch (error) {
+      await loadBookings(false);
+      notify.error(
+        'Xatolik',
+        error instanceof Error ? error.message : 'Yakunlash amalga oshmadi',
+      );
+    } finally {
+      setActionId(null);
+    }
+  }, [activeBookings, loadBookings, user?.id]);
+
+  const handleRelease = useCallback(async (id: string) => {
+    setActiveBookings((prev) => prev.filter((b) => b.id !== id));
+    setActionId(id);
+    try {
+      await releaseBookedOrder(id);
+      await loadBookings(true);
+    } catch (error) {
+      await loadBookings(false);
+      notify.error(
+        'Xatolik',
+        error instanceof Error ? error.message : 'Buyurtmaga qaytarish amalga oshmadi',
+      );
+    } finally {
+      setActionId(null);
+    }
+  }, [loadBookings]);
 
   const handleCall = useCallback((phone: string) => {
+    if (!phone) return;
     Linking.openURL(`tel:${phone.replace(/\s/g, '')}`);
   }, []);
 
-  const handleNavigate = useCallback((address: string) => {
-    openNavigation({ address });
+  const handleNavigate = useCallback((booking: BookingItem) => {
+    openNavigation({
+      address: booking.address,
+      latitude: booking.latitude,
+      longitude: booking.longitude,
+    });
+  }, []);
+
+  const handleOpen = useCallback((id: string) => {
+    router.push(`/booking/${id}`);
   }, []);
 
   const counts = useMemo(() => ({
-    active: bookings.filter((b) => b.status === 'active').length,
-    delivered: bookings.filter((b) => b.status === 'delivered').length,
-    cancelled: bookings.filter((b) => b.status === 'cancelled').length,
-  }), [bookings]);
+    active: activeBookings.length,
+    delivered: historyBookings.filter((b) => b.status === 'delivered').length,
+    cancelled: historyBookings.filter((b) => b.status === 'cancelled').length,
+  }), [activeBookings, historyBookings]);
 
-  const filtered = useMemo(() => bookings.filter((b) => b.status === tab), [bookings, tab]);
+  const filtered = useMemo(() => {
+    if (tab === 'active') return activeBookings;
+    return historyBookings.filter((b) => b.status === tab);
+  }, [tab, activeBookings, historyBookings]);
 
-  const swipeHintVisible = tab === 'active' && counts.active > 0;
+  const swipeHintVisible = tab === 'active' && counts.active > 0 && !loading;
 
   return (
     <View style={sStyles.container}>
@@ -511,13 +568,14 @@ export default function BookingsScreen() {
       {swipeHintVisible && (
         <Animated.View entering={FadeIn.duration(300)} style={sStyles.hintRow}>
           <Feather name="arrow-left" size={12} color={C.textMuted} />
-          <Text style={sStyles.hintText}>Chapga — Bekor  ·  O'ngga — Yetkazildi</Text>
+          <Text style={sStyles.hintText}>Chapga — Buyurtmalar  ·  O'ngga — Yetkazildi</Text>
           <Feather name="arrow-right" size={12} color={C.textMuted} />
         </Animated.View>
       )}
 
       {tab === 'active' ? (
         <Animated.FlatList
+          style={sStyles.list}
           data={filtered}
           keyExtractor={(i) => i.id}
           itemLayoutAnimation={LinearTransition.springify().damping(18)}
@@ -526,34 +584,62 @@ export default function BookingsScreen() {
               <SwipeableBookingCard
                 booking={item}
                 onDeliver={handleDeliver}
-                onCancel={handleCancel}
+                onRelease={handleRelease}
                 onCall={handleCall}
                 onNavigate={handleNavigate}
+                onOpen={handleOpen}
+                actionLoading={actionId === item.id}
               />
             </Animated.View>
           )}
-          contentContainerStyle={sStyles.listContent}
+          contentContainerStyle={
+            filtered.length === 0 ? sStyles.listContentEmpty : sStyles.listContent
+          }
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <EmptyBox icon="inbox" title="Faol bron yo'q" sub="Barcha bronlar qayta ishlangan" />
+            loading ? (
+              <ListLoader />
+            ) : (
+              <EmptyBox icon="inbox" title="Jarayonda bron yo'q" sub="Band qilingan buyurtmalar shu yerda ko'rinadi" />
+            )
           }
+          refreshControl={refreshControl}
         />
       ) : (
         <FlatList
+          style={sStyles.list}
           data={filtered}
           keyExtractor={(i) => i.id}
-          renderItem={({ item }) => <StaticBookingCard booking={item} />}
-          contentContainerStyle={sStyles.listContent}
+          renderItem={({ item }) => (
+            <StaticBookingCard booking={item} onOpen={handleOpen} />
+          )}
+          contentContainerStyle={
+            filtered.length === 0 ? sStyles.listContentEmpty : sStyles.listContent
+          }
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <EmptyBox
-              icon={tab === 'delivered' ? 'check-circle' : 'x-circle'}
-              title={tab === 'delivered' ? 'Yakunlangan bron yo\'q' : 'Bekor qilingan bron yo\'q'}
-              sub="Hozircha bu yerda hech narsa yo'q"
-            />
+            loading ? (
+              <ListLoader />
+            ) : (
+              <EmptyBox
+                icon={tab === 'delivered' ? 'check-circle' : 'x-circle'}
+                title={tab === 'delivered' ? 'Yakunlangan bron yo\'q' : 'Bekor qilingan bron yo\'q'}
+                sub="Hozircha bu yerda hech narsa yo'q"
+              />
+            )
           }
+          refreshControl={refreshControl}
         />
       )}
+    </View>
+  );
+}
+
+function ListLoader() {
+  return (
+    <View style={sStyles.emptyBox}>
+      <ActivityIndicator size="large" color={C.primary} />
+      <Text style={sStyles.emptySub}>Yuklanmoqda...</Text>
     </View>
   );
 }
@@ -572,9 +658,11 @@ function EmptyBox({ icon, title, sub }: { icon: React.ComponentProps<typeof Feat
 
 const sStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  list: { flex: 1 },
   hintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, gap: 6 },
   hintText: { fontSize: 11, color: C.textMuted, fontWeight: '500' },
   listContent: { padding: 16, paddingBottom: 32 },
+  listContentEmpty: { flexGrow: 1, paddingBottom: 32 },
   emptyBox: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
   emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: C.border, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   emptyTitle: { fontSize: 17, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },

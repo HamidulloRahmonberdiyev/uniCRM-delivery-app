@@ -47,6 +47,22 @@ export default {
     plugins: [
       'expo-router',
       [
+        'expo-location',
+        {
+          locationWhenInUsePermission:
+            'Buyurtmalargacha masofani hisoblash uchun joylashuvingiz kerak.',
+        },
+      ],
+      [
+        'expo-speech-recognition',
+        {
+          microphonePermission:
+            'Ovozli qidiruv uchun mikrofonga ruxsat bering.',
+          speechRecognitionPermission:
+            'Buyurtmalarni ovoz bilan qidirish uchun nutqni tanish ruxsatini bering.',
+        },
+      ],
+      [
         'expo-splash-screen',
         {
           image: './assets/images/splash-icon.png',

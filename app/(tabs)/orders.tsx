@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,90 +8,20 @@ import {
   StyleSheet,
   Linking,
   Platform,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { Palette as C } from '@/constants/theme';
 import { ScreenHeader } from '@/components/screen-header';
+import { useDriverLocation } from '@/hooks/use-driver-location';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { useVoiceSearch } from '@/hooks/use-voice-search';
+import { notify } from '@/lib/notify';
+import { bookOrder, getActiveOrders } from '@/services/orders-api';
+import type { OrderListItem } from '@/types/order';
+import { attachDistanceToOrders, formatOrderSum } from '@/utils/order';
 import { openNavigation } from '@/utils/navigation';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Order {
-  id: string;
-  customerName: string;
-  date: string;
-  time: string;
-  address: string;
-  phone: string;
-  distance: string;
-  eta: string;
-}
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_ORDERS: Order[] = [
-  {
-    id: '1',
-    customerName: 'Alisher Karimov',
-    date: '05.06.2026',
-    time: '10:30',
-    address: 'Toshkent sh., Chilonzor t., 3-kvartal, 15-uy',
-    phone: '+998 90 123 45 67',
-    distance: '1.2 km',
-    eta: '5 min',
-  },
-  {
-    id: '2',
-    customerName: 'Zulfiya Rahimova',
-    date: '05.06.2026',
-    time: '11:15',
-    address: "Toshkent sh., Yunusobod t., Amir Temur shoh ko'chasi, 108-uy",
-    phone: '+998 91 987 65 43',
-    distance: '3.8 km',
-    eta: '14 min',
-  },
-  {
-    id: '3',
-    customerName: 'Bobur Mirzayev',
-    date: '05.06.2026',
-    time: '12:00',
-    address: "Toshkent sh., Mirzo Ulug'bek t., Bunyodkor ko'chasi, 22-uy",
-    phone: '+998 93 456 78 90',
-    distance: '5.1 km',
-    eta: '18 min',
-  },
-  {
-    id: '4',
-    customerName: 'Nilufar Toshmatova',
-    date: '05.06.2026',
-    time: '13:45',
-    address: "Toshkent sh., Shayxontohur t., Navoiy ko'chasi, 7-uy",
-    phone: '+998 97 111 22 33',
-    distance: '2.4 km',
-    eta: '9 min',
-  },
-  {
-    id: '5',
-    customerName: 'Sardor Xasanov',
-    date: '05.06.2026',
-    time: '14:20',
-    address: "Toshkent sh., Uchtepa t., Bog'ishamol ko'chasi, 44-uy",
-    phone: '+998 99 888 77 66',
-    distance: '7.3 km',
-    eta: '22 min',
-  },
-  {
-    id: '6',
-    customerName: 'Madina Yusupova',
-    date: '05.06.2026',
-    time: '15:00',
-    address: "Toshkent sh., Olmazor t., Qoratosh ko'chasi, 3-uy",
-    phone: '+998 94 555 44 33',
-    distance: '4.6 km',
-    eta: '16 min',
-  },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -106,16 +36,16 @@ function getInitials(name: string): string {
 // ─── OrderCard ────────────────────────────────────────────────────────────────
 
 interface OrderCardProps {
-  order: Order;
+  order: OrderListItem;
   onBook: (id: string) => void;
-  onNavigate: (address: string) => void;
+  onNavigate: (order: OrderListItem) => void;
   onCall: (phone: string) => void;
+  booking?: boolean;
 }
 
-function OrderCard({ order, onBook, onNavigate, onCall }: OrderCardProps) {
+function OrderCard({ order, onBook, onNavigate, onCall, booking }: OrderCardProps) {
   return (
     <View style={cardStyles.card}>
-      {/* Header */}
       <View style={cardStyles.header}>
         <View style={cardStyles.avatar}>
           <Text style={cardStyles.avatarText}>{getInitials(order.customerName)}</Text>
@@ -124,22 +54,23 @@ function OrderCard({ order, onBook, onNavigate, onCall }: OrderCardProps) {
           <Text style={cardStyles.customerName} numberOfLines={1}>
             {order.customerName}
           </Text>
-          <Text style={cardStyles.dateTime}>
-            {order.date}  ·  {order.time}
-          </Text>
+          <View style={cardStyles.dateTimeRow}>
+            <Feather name="clock" size={11} color={C.textMuted} />
+            <Text style={cardStyles.dateTime} numberOfLines={1}>
+              {order.dateTimeLabel}
+            </Text>
+          </View>
         </View>
-        {/* Distance badge */}
         <View style={cardStyles.distanceBadge}>
           <Feather name="navigation" size={11} color={C.primary} />
-          <Text style={cardStyles.distanceText}>{order.distance}</Text>
+          <Text style={cardStyles.distanceText}>{order.distance ?? '—'}</Text>
         </View>
       </View>
 
-      {/* Info rows */}
       <View style={cardStyles.infoSection}>
         <TouchableOpacity
           style={cardStyles.infoRow}
-          onPress={() => onNavigate(order.address)}
+          onPress={() => onNavigate(order)}
           activeOpacity={0.7}
         >
           <Feather name="map-pin" size={13} color={C.primary} />
@@ -156,33 +87,46 @@ function OrderCard({ order, onBook, onNavigate, onCall }: OrderCardProps) {
             style={cardStyles.phoneRow}
             onPress={() => onCall(order.phone)}
             activeOpacity={0.7}
+            disabled={!order.phone}
           >
             <Feather name="phone" size={13} color={C.primary} />
             <Text style={[cardStyles.infoText, { color: C.primary, fontWeight: '500' }]}>
-              {order.phone}
+              {order.phone || 'Telefon yo\'q'}
             </Text>
           </TouchableOpacity>
-          <View style={cardStyles.etaBadge}>
-            <Feather name="clock" size={10} color={C.textMuted} />
-            <Text style={cardStyles.etaText}>~{order.eta}</Text>
+          <View style={cardStyles.metaBadges}>
+            <View style={cardStyles.metaBadge}>
+              <Feather name="package" size={10} color={C.textMuted} />
+              <Text style={cardStyles.metaText}>{order.quantity} ta</Text>
+            </View>
+            <View style={cardStyles.metaBadge}>
+              <Feather name="credit-card" size={10} color={C.textMuted} />
+              <Text style={cardStyles.metaText}>{formatOrderSum(order.sum)}</Text>
+            </View>
           </View>
         </View>
       </View>
 
-      {/* Action buttons */}
       <View style={cardStyles.actions}>
         <TouchableOpacity
-          style={cardStyles.bookBtn}
+          style={[cardStyles.bookBtn, booking && cardStyles.bookBtnDisabled]}
           onPress={() => onBook(order.id)}
           activeOpacity={0.85}
+          disabled={booking}
         >
-          <Feather name="check-circle" size={15} color="#fff" />
-          <Text style={cardStyles.bookBtnText}>Band qilish</Text>
+          {booking ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <>
+              <Feather name="check-circle" size={15} color="#fff" />
+              <Text style={cardStyles.bookBtnText}>Band qilish</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
           style={cardStyles.navBtn}
-          onPress={() => onNavigate(order.address)}
+          onPress={() => onNavigate(order)}
           activeOpacity={0.85}
         >
           <Feather name="navigation" size={16} color={C.primary} />
@@ -233,7 +177,13 @@ const cardStyles = StyleSheet.create({
     color: C.textPrimary,
     marginBottom: 3,
   },
+  dateTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   dateTime: {
+    flex: 1,
     fontSize: 12,
     color: C.textMuted,
     fontWeight: '400',
@@ -281,7 +231,11 @@ const cardStyles = StyleSheet.create({
     color: C.textSecondary,
     lineHeight: 19,
   },
-  etaBadge: {
+  metaBadges: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  metaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -289,11 +243,13 @@ const cardStyles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    maxWidth: 130,
   },
-  etaText: {
-    fontSize: 11,
+  metaText: {
+    fontSize: 10,
     fontWeight: '600',
     color: C.textMuted,
+    flexShrink: 1,
   },
   actions: {
     flexDirection: 'row',
@@ -309,6 +265,10 @@ const cardStyles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 13,
     gap: 7,
+    minHeight: 48,
+  },
+  bookBtnDisabled: {
+    opacity: 0.85,
   },
   bookBtnText: {
     color: '#fff',
@@ -326,16 +286,31 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
+// ─── Empty / Loading ──────────────────────────────────────────────────────────
 
-function EmptyState() {
+function EmptyState({ hasSearch }: { hasSearch: boolean }) {
   return (
     <View style={emptyStyles.container}>
       <View style={emptyStyles.iconCircle}>
         <Feather name="inbox" size={32} color={C.textMuted} />
       </View>
-      <Text style={emptyStyles.title}>Buyurtma topilmadi</Text>
-      <Text style={emptyStyles.subtitle}>Qidiruv so'zini o'zgartiring</Text>
+      <Text style={emptyStyles.title}>
+        {hasSearch ? 'Buyurtma topilmadi' : 'Faol buyurtma yo\'q'}
+      </Text>
+      <Text style={emptyStyles.subtitle}>
+        {hasSearch
+          ? 'Qidiruv so\'zini o\'zgartiring'
+          : 'Hozircha yangi buyurtmalar mavjud emas'}
+      </Text>
+    </View>
+  );
+}
+
+function ListLoader() {
+  return (
+    <View style={emptyStyles.container}>
+      <ActivityIndicator size="large" color={C.primary} />
+      <Text style={emptyStyles.subtitle}>Yuklanmoqda...</Text>
     </View>
   );
 }
@@ -343,53 +318,111 @@ function EmptyState() {
 const emptyStyles = StyleSheet.create({
   container: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
   iconCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: C.border, justifyContent: 'center', alignItems: 'center', marginBottom: 20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: C.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   title: { fontSize: 17, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },
-  subtitle: { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 20 },
+  subtitle: { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 20, marginTop: 8 },
 });
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
+const SEARCH_DEBOUNCE_MS = 400;
+
 export default function ActiveOrdersScreen() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [bookingId, setBookingId] = useState<string | null>(null);
+  const searchQueryRef = useRef(searchQuery);
+  const isFirstFocus = useRef(true);
+  searchQueryRef.current = searchQuery;
+  const { location, refreshLocation } = useDriverLocation();
 
-  const filteredOrders = useMemo(
-    () =>
-      MOCK_ORDERS.filter(
-        (o) =>
-          o.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          o.address.toLowerCase().includes(searchQuery.toLowerCase())
-      ),
-    [searchQuery]
+  const loadOrders = useCallback(async (search?: string, silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const driverLocation = location ?? (await refreshLocation());
+      const data = await getActiveOrders(search);
+      setOrders(attachDistanceToOrders(data, driverLocation));
+    } catch (error) {
+      setOrders([]);
+      if (!silent) {
+        notify.error(
+          'Xatolik',
+          error instanceof Error ? error.message : 'Buyurtmalarni yuklab bo\'lmadi',
+        );
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [location, refreshLocation]);
+
+  const { refreshControl } = useRefreshControl(() => loadOrders(searchQuery, true));
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        return;
+      }
+      loadOrders(searchQueryRef.current, true);
+    }, [loadOrders]),
   );
 
-  const handleBook = useCallback((id: string) => {
-    console.log('Book order:', id);
-  }, []);
+  useEffect(() => {
+    const delay = searchQuery ? SEARCH_DEBOUNCE_MS : 0;
+    const timer = setTimeout(() => loadOrders(searchQuery), delay);
+    return () => clearTimeout(timer);
+  }, [searchQuery, loadOrders]);
 
-  const handleNavigate = useCallback((address: string) => {
-    openNavigation({ address });
+  const handleBook = useCallback(
+    async (id: string) => {
+      setBookingId(id);
+      try {
+        await bookOrder(id);
+        setOrders((prev) => prev.filter((o) => o.id !== id));
+        notify.success('Band qilindi', 'Buyurtma muvaffaqiyatli band qilindi');
+      } catch (error) {
+        notify.error(
+          'Xatolik',
+          error instanceof Error ? error.message : 'Band qilish amalga oshmadi',
+        );
+      } finally {
+        setBookingId(null);
+      }
+    },
+    [],
+  );
+
+  const handleNavigate = useCallback((order: OrderListItem) => {
+    openNavigation({
+      address: order.address,
+      latitude: order.latitude,
+      longitude: order.longitude,
+    });
   }, []);
 
   const handleCall = useCallback((phone: string) => {
+    if (!phone) return;
     Linking.openURL(`tel:${phone.replace(/\s/g, '')}`);
   }, []);
 
-  const handleVoiceSearch = useCallback(() => {
-    Alert.alert('Ovozli qidiruv', "Mikrofonga ruxsat kerak bo'ladi");
-  }, []);
+  const { isListening, toggleListening } = useVoiceSearch(setSearchQuery);
 
   return (
     <View style={screenStyles.container}>
-      <ScreenHeader title="Buyurtmalar" badge={filteredOrders.length}>
-        {/* Search bar */}
+      <ScreenHeader title="Buyurtmalar" badge={orders.length}>
         <View style={screenStyles.searchBar}>
           <Feather name="search" size={16} color={C.textMuted} />
           <TextInput
             style={screenStyles.searchInput}
-            placeholder="Ism yoki manzil bo'yicha qidiring..."
+            placeholder="Ism yoki telefon bo'yicha qidiring..."
             placeholderTextColor={C.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -404,18 +437,26 @@ export default function ActiveOrdersScreen() {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              onPress={handleVoiceSearch}
+              onPress={toggleListening}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={screenStyles.micBtn}
+              style={[
+                screenStyles.micBtn,
+                isListening && screenStyles.micBtnActive,
+              ]}
             >
-              <Feather name="mic" size={16} color={C.primary} />
+              <Feather
+                name={isListening ? 'mic-off' : 'mic'}
+                size={16}
+                color={isListening ? '#fff' : C.primary}
+              />
             </TouchableOpacity>
           )}
         </View>
       </ScreenHeader>
 
       <FlatList
-        data={filteredOrders}
+        style={screenStyles.list}
+        data={orders}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <OrderCard
@@ -423,11 +464,17 @@ export default function ActiveOrdersScreen() {
             onBook={handleBook}
             onNavigate={handleNavigate}
             onCall={handleCall}
+            booking={bookingId === item.id}
           />
         )}
-        contentContainerStyle={screenStyles.listContent}
+        contentContainerStyle={
+          orders.length === 0 ? screenStyles.listContentEmpty : screenStyles.listContent
+        }
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={EmptyState}
+        ListEmptyComponent={
+          loading ? <ListLoader /> : <EmptyState hasSearch={searchQuery.length > 0} />
+        }
+        refreshControl={refreshControl}
       />
     </View>
   );
@@ -437,6 +484,9 @@ const screenStyles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: C.bg,
+  },
+  list: {
+    flex: 1,
   },
   searchBar: {
     flexDirection: 'row',
@@ -462,8 +512,15 @@ const screenStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  micBtnActive: {
+    backgroundColor: C.danger,
+  },
   listContent: {
     padding: 16,
+    paddingBottom: 24,
+  },
+  listContentEmpty: {
+    flexGrow: 1,
     paddingBottom: 24,
   },
 });
