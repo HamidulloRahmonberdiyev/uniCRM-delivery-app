@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,16 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { Palette as C } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { notify } from '@/lib/notify';
 import { useRefreshControl } from '@/hooks/use-refresh-control';
+import {
+  clearProfileCache,
+  loadProfileCache,
+  saveProfileCache,
+} from '@/services/profile-cache';
 import { getUserProfile } from '@/services/profile-api';
 import { getSupplierStats } from '@/services/supplier-api';
 import type { User } from '@/types/auth';
@@ -229,7 +234,8 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [activeOrders, setActiveOrders] = useState(0);
   const [deliveredOrders, setDeliveredOrders] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const initialLoadDone = useRef(false);
 
   const displayName = profile?.name ?? user?.name ?? '—';
   const displayPhone = profile?.phone ?? user?.phone ?? '—';
@@ -237,32 +243,71 @@ export default function ProfileScreen() {
   const displayUsername = profile?.username ?? user?.username ?? null;
   const roleName = profile?.roles?.[0]?.name ?? 'Yetkazuvchi';
 
-  const loadProfileData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [profileData, stats] = await Promise.all([
-        getUserProfile(),
-        getSupplierStats(),
-      ]);
-      setProfile(profileData);
-      setActiveOrders(stats.active_orders);
-      setDeliveredOrders(stats.delivered_orders);
-    } catch {
-      setProfile(null);
-      setActiveOrders(0);
-      setDeliveredOrders(0);
-    } finally {
-      if (!silent) setLoading(false);
-    }
+  const applyCache = useCallback(
+    (cache: Awaited<ReturnType<typeof loadProfileCache>>) => {
+      if (!cache) return false;
+      setProfile(cache.profile);
+      setActiveOrders(cache.activeOrders);
+      setDeliveredOrders(cache.deliveredOrders);
+      return true;
+    },
+    [],
+  );
+
+  const fetchAndCacheProfile = useCallback(async () => {
+    const [profileData, stats] = await Promise.all([
+      getUserProfile(),
+      getSupplierStats(),
+    ]);
+
+    setProfile(profileData);
+    setActiveOrders(stats.active_orders);
+    setDeliveredOrders(stats.delivered_orders);
+
+    await saveProfileCache({
+      userId: profileData.id,
+      profile: profileData,
+      activeOrders: stats.active_orders,
+      deliveredOrders: stats.delivered_orders,
+      cachedAt: Date.now(),
+    });
   }, []);
 
-  const { refreshControl } = useRefreshControl(() => loadProfileData(true));
+  useEffect(() => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
 
-  useFocusEffect(
-    useCallback(() => {
-      loadProfileData(false);
-    }, [loadProfileData]),
-  );
+    (async () => {
+      const cache = await loadProfileCache();
+      const cacheValid =
+        cache && (!user?.id || cache.userId === user.id);
+
+      if (cache && !cacheValid) {
+        await clearProfileCache();
+      } else if (cacheValid && applyCache(cache)) {
+        return;
+      }
+
+      setLoading(true);
+      try {
+        await fetchAndCacheProfile();
+      } catch {
+        // auth user ma'lumotlari ko'rsatiladi
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [applyCache, fetchAndCacheProfile, user?.id]);
+
+  const handleRefresh = useCallback(async () => {
+    try {
+      await fetchAndCacheProfile();
+    } catch {
+      notify.error('Xatolik', "Profil ma'lumotlarini yangilab bo'lmadi");
+    }
+  }, [fetchAndCacheProfile]);
+
+  const { refreshControl } = useRefreshControl(handleRefresh);
 
   const handleLogout = () => {
     notify.confirm('Chiqish', "Tizimdan chiqishni tasdiqlaysizmi?", [
@@ -315,14 +360,14 @@ export default function ProfileScreen() {
             icon="zap"
             value={activeOrders}
             label="Faol buyurtmalar"
-            loading={loading}
+            loading={loading && !profile}
           />
           <View style={styles.statsSpacer} />
           <StatCard
             icon="package"
             value={deliveredOrders}
             label="Yetkazilgan"
-            loading={loading}
+            loading={loading && !profile}
           />
         </View>
 

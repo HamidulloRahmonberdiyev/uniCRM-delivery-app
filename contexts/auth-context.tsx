@@ -12,6 +12,7 @@ import {
   loginByPhone,
   logoutApi,
 } from '@/services/auth-api';
+import { clearProfileCache } from '@/services/profile-cache';
 import {
   clearSession,
   expiresAtFromExpiresIn,
@@ -111,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: data.user,
     };
 
+    await clearProfileCache();
     await saveSession(session);
     applySession(session, setUser, setPhone);
   }, []);
@@ -121,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await logoutApi(session.accessToken);
     }
     await clearSession();
+    await clearProfileCache();
     clearAuthState(setUser, setPhone);
   }, []);
 

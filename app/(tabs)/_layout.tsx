@@ -113,9 +113,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      {/* Hide old starter screens from the tab bar */}
-      <Tabs.Screen name="index" options={{ href: null }} />
-      <Tabs.Screen name="explore" options={{ href: null }} />
     </Tabs>
   );
 }

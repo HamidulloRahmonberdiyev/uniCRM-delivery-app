@@ -1,7 +1,7 @@
 /** @type {import('expo/config').ExpoConfig} */
 export default {
   expo: {
-    name: 'unicrm-delivery',
+    name: 'uniGo',
     slug: 'unicrm-delivery',
     version: '1.0.0',
     orientation: 'portrait',
@@ -24,11 +24,10 @@ export default {
       },
     },
     android: {
+      icon: './assets/images/icon.png',
       adaptiveIcon: {
-        backgroundColor: '#E6F4FE',
-        foregroundImage: './assets/images/android-icon-foreground.png',
-        backgroundImage: './assets/images/android-icon-background.png',
-        monochromeImage: './assets/images/android-icon-monochrome.png',
+        foregroundImage: './assets/images/icon.png',
+        backgroundColor: '#F4F6F8',
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
@@ -46,6 +45,21 @@ export default {
     },
     plugins: [
       'expo-router',
+      [
+        'expo-build-properties',
+        {
+          android: {
+            minSdkVersion: 26,
+          },
+        },
+      ],
+      [
+        'react-native-yamap-plus',
+        {
+          android_useYandexMapKitLite: false,
+          ios_useYandexMapKitLite: false,
+        },
+      ],
       [
         'expo-location',
         {
@@ -65,12 +79,24 @@ export default {
       [
         'expo-splash-screen',
         {
-          image: './assets/images/splash-icon.png',
+          image: './assets/images/icon.png',
           imageWidth: 200,
           resizeMode: 'contain',
-          backgroundColor: '#ffffff',
+          backgroundColor: '#0088CC',
+          android: {
+            image: './assets/images/icon.png',
+            imageWidth: 200,
+            resizeMode: 'contain',
+            backgroundColor: '#0088CC',
+          },
+          ios: {
+            image: './assets/images/icon.png',
+            imageWidth: 200,
+            resizeMode: 'contain',
+            backgroundColor: '#0088CC',
+          },
           dark: {
-            backgroundColor: '#000000',
+            backgroundColor: '#0088CC',
           },
         },
       ],
@@ -85,6 +111,7 @@ export default {
         projectId: '44d454e8-c76c-40d2-93da-ff8b4ba85fdb',
       },
       googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+      yandexMapsApiKey: process.env.EXPO_PUBLIC_YANDEX_MAPS_API_KEY,
     },
   },
 };

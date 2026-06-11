@@ -104,7 +104,7 @@ export default function BookingDetailScreen() {
     if (!detail) return;
     openNavigation({
       address: detail.address,
-      latitude: detail.latitude,
+      latitude: detail.latitude,  
       longitude: detail.longitude,
     });
   };

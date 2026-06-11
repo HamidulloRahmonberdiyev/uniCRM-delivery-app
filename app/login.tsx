@@ -87,7 +87,7 @@ export default function LoginScreen() {
           </View>
         </View>
         <Text style={styles.brand}>uniGo</Text>
-        <Text style={styles.tagline}>Yetkazuvchi ilovasi</Text>
+        <Text style={styles.tagline}>uniGo kuryerlar ilovasi</Text>
       </View>
 
       <KeyboardAvoidingView
