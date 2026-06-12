@@ -293,10 +293,10 @@ export default function LocationScreen() {
   const isFirstFocus = useRef(true);
   const { location, refreshLocation } = useDriverLocation();
 
-  useYamapInit();
+  const { ready: mapReady } = useYamapInit();
 
   const mapOrders = useMemo(() => orders.filter(hasCoordinates), [orders]);
-  const canShowMap = canShowYandexMap();
+  const canShowMap = canShowYandexMap() && mapReady;
 
   const loadOrders = useCallback(
     async (silent = false) => {

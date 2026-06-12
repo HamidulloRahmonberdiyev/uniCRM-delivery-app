@@ -1,19 +1,31 @@
-import { YANDEX_MAPS_API_KEY, isExpoGo } from '@/lib/yandex-maps';
-import { useEffect } from 'react';
+import {
+  ensureYamapInitialized,
+  isExpoGo,
+  isYamapInitialized,
+  YANDEX_MAPS_API_KEY,
+} from '@/lib/yandex-maps';
+import { useEffect, useState } from 'react';
 
-let initialized = false;
+/**
+ * Yandex MapKit init holatini qaytaradi.
+ * Xarita faqat `ready === true` bo'lganda render qilinishi kerak,
+ * aks holda native view crash beradi.
+ */
+export function useYamapInit(): { ready: boolean } {
+  const [ready, setReady] = useState(
+    // Native init allaqachon bo'lgan yoki umuman kerak emas (WebView yo'li)
+    () => isYamapInitialized() || isExpoGo || !YANDEX_MAPS_API_KEY,
+  );
 
-export function useYamapInit() {
   useEffect(() => {
-    if (initialized || isExpoGo || !YANDEX_MAPS_API_KEY) return;
-
-    try {
-      const { YamapInstance } = require('react-native-yamap-plus');
-      YamapInstance.init(YANDEX_MAPS_API_KEY);
-      YamapInstance.setLocale('ru_RU');
-      initialized = true;
-    } catch {
-      // Native modul mavjud emas (masalan, Expo Go)
+    if (ready) return;
+    // Expo Go yoki kalit yo'q — native init kerak emas (WebView ishlatiladi)
+    if (isExpoGo || !YANDEX_MAPS_API_KEY) {
+      setReady(true);
+      return;
     }
-  }, []);
+    setReady(ensureYamapInitialized());
+  }, [ready]);
+
+  return { ready };
 }

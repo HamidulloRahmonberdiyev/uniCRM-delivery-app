@@ -1,6 +1,8 @@
 import {
-  DRIVER_PIN_DATA_URI,
-  ORDER_PIN_DATA_URI,
+  DRIVER_PIN_ANCHOR,
+  DRIVER_PIN_IMAGE,
+  ORDER_PIN_ANCHOR,
+  ORDER_PIN_IMAGE,
 } from '@/lib/order-marker-icon';
 import { NATIVE_MAP_PROPS } from '@/lib/yandex-map-theme';
 import type { OrderListItem } from '@/types/order';
@@ -11,9 +13,8 @@ import Yamap, { Marker, type YamapRef } from 'react-native-yamap-plus';
 
 const FALLBACK_CENTER = { lat: 41.3111, lon: 69.2797 };
 const DRIVER_ZOOM = 12;
-
-const DRIVER_MARKER = { uri: DRIVER_PIN_DATA_URI };
-const ORDER_MARKER = { uri: ORDER_PIN_DATA_URI };
+const DRIVER_MARKER_SCALE = 0.5;
+const ORDER_MARKER_SCALE = 0.46;
 
 export type YandexLocationMapProps = {
   driverLocation: Coordinates | null;
@@ -61,9 +62,9 @@ export const YandexLocationMap = forwardRef<YamapRef, YandexLocationMapProps>(
               lat: driverLocation.latitude,
               lon: driverLocation.longitude,
             }}
-            source={DRIVER_MARKER}
-            scale={1.15}
-            anchor={{ x: 0.5, y: 0.5 }}
+            source={DRIVER_PIN_IMAGE}
+            scale={DRIVER_MARKER_SCALE}
+            anchor={DRIVER_PIN_ANCHOR}
             zIndex={1000}
           />
         ) : null}
@@ -74,9 +75,9 @@ export const YandexLocationMap = forwardRef<YamapRef, YandexLocationMapProps>(
               lat: order.latitude!,
               lon: order.longitude!,
             }}
-            source={ORDER_MARKER}
-            scale={1.05}
-            anchor={{ x: 0.5, y: 1 }}
+            source={ORDER_PIN_IMAGE}
+            scale={ORDER_MARKER_SCALE}
+            anchor={ORDER_PIN_ANCHOR}
             zIndex={500}
             handled
             onPress={() => onOrderPress?.(order)}

@@ -10,8 +10,13 @@ import { AppSplash } from '@/components/app-splash';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ensureYamapInitialized } from '@/lib/yandex-maps';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+
+// Yandex MapKit ni ilova ishga tushishida darhol init qilamiz,
+// shunda Lokatsiya ekraniga kirilganda xarita tayyor bo'ladi.
+ensureYamapInitialized();
 
 function RootNavigator() {
   const colorScheme = useColorScheme();

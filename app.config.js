@@ -79,19 +79,19 @@ export default {
       [
         'expo-splash-screen',
         {
-          image: './assets/images/icon.png',
-          imageWidth: 200,
+          image: './assets/images/logo.png',
+          imageWidth: 96,
           resizeMode: 'contain',
           backgroundColor: '#0088CC',
           android: {
-            image: './assets/images/icon.png',
-            imageWidth: 200,
+            image: './assets/images/logo.png',
+            imageWidth: 96,
             resizeMode: 'contain',
             backgroundColor: '#0088CC',
           },
           ios: {
-            image: './assets/images/icon.png',
-            imageWidth: 200,
+            image: './assets/images/logo.png',
+            imageWidth: 96,
             resizeMode: 'contain',
             backgroundColor: '#0088CC',
           },

@@ -1,4 +1,19 @@
-/** Xaritadagi markerlar — SVG data URI (native va WebView) */
+/**
+ * Xaritadagi markerlar.
+ * - Native (react-native-yamap-plus): haqiqiy PNG (require) — native kod data:image
+ *   uchun faqat base64 kutadi, SVG data URI null bitmap berib crash qiladi.
+ * - WebView (Expo Go): SVG data URI — brauzer SVG ni mukammal render qiladi.
+ */
+
+import type { ImageSourcePropType } from 'react-native';
+
+export const ORDER_PIN_IMAGE: ImageSourcePropType = require('@/assets/images/order-pin.png');
+export const DRIVER_PIN_IMAGE: ImageSourcePropType = require('@/assets/images/driver-pin.png');
+
+/** Marker tasvirining haqiqiy nuqtaga to'g'ri keladigan anchor nuqtasi (0..1) */
+export const ORDER_PIN_ANCHOR = { x: 0.5, y: 0.962 } as const;
+export const DRIVER_PIN_ANCHOR = { x: 0.5, y: 0.5 } as const;
+
 
 const ORDER_PIN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="54" height="64" viewBox="0 0 54 64">
   <defs>
