@@ -31,7 +31,7 @@ export function AppSplash() {
           <View style={styles.logoRing}>
             <View style={styles.logoInner}>
               <Image
-                source={require('@/assets/images/logo.png')}
+                source={require('@/assets/images/icon.png')}
                 style={styles.logoImage}
                 contentFit="contain"
               />

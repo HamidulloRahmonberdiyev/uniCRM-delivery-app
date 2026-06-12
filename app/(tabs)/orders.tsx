@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -413,7 +413,19 @@ export default function ActiveOrdersScreen() {
     Linking.openURL(`tel:${phone.replace(/\s/g, '')}`);
   }, []);
 
-  const { isListening, toggleListening } = useVoiceSearch(setSearchQuery);
+  const voiceContext = useMemo(
+    () =>
+      orders.flatMap((o) =>
+        [o.customerName, o.phone].filter((v): v is string =>
+          Boolean(v?.trim()),
+        ),
+      ),
+    [orders],
+  );
+
+  const { isListening, toggleListening } = useVoiceSearch(setSearchQuery, {
+    contextualStrings: voiceContext,
+  });
 
   return (
     <View style={screenStyles.container}>
@@ -422,11 +434,16 @@ export default function ActiveOrdersScreen() {
           <Feather name="search" size={16} color={C.textMuted} />
           <TextInput
             style={screenStyles.searchInput}
-            placeholder="Ism yoki telefon bo'yicha qidiring..."
-            placeholderTextColor={C.textMuted}
+            placeholder={
+              isListening
+                ? 'Gapiring: ism yoki telefon...'
+                : "Ism yoki telefon bo'yicha qidiring..."
+            }
+            placeholderTextColor={isListening ? C.primary : C.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
+            editable={!isListening}
           />
           {searchQuery.length > 0 ? (
             <TouchableOpacity

@@ -6,6 +6,9 @@ type SpeechEventHandler = (event: never) => void;
 
 type SpeechModule = {
   requestPermissionsAsync: () => Promise<{ granted: boolean }>;
+  getStateAsync?: () => Promise<
+    'inactive' | 'starting' | 'recognizing' | 'stopping'
+  >;
   start: (options: Record<string, unknown>) => void;
   stop: () => void;
 };

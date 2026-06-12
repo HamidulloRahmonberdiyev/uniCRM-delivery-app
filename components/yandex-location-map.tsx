@@ -1,6 +1,8 @@
 import {
+  DRIVER_MARKER_SCALE,
   DRIVER_PIN_ANCHOR,
   DRIVER_PIN_IMAGE,
+  ORDER_MARKER_SCALE,
   ORDER_PIN_ANCHOR,
   ORDER_PIN_IMAGE,
 } from '@/lib/order-marker-icon';
@@ -13,8 +15,6 @@ import Yamap, { Marker, type YamapRef } from 'react-native-yamap-plus';
 
 const FALLBACK_CENTER = { lat: 41.3111, lon: 69.2797 };
 const DRIVER_ZOOM = 12;
-const DRIVER_MARKER_SCALE = 0.5;
-const ORDER_MARKER_SCALE = 0.46;
 
 export type YandexLocationMapProps = {
   driverLocation: Coordinates | null;

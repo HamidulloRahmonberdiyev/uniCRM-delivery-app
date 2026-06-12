@@ -1,6 +1,8 @@
 import {
   DRIVER_PIN_DATA_URI,
+  DRIVER_PIN_DISPLAY,
   ORDER_PIN_DATA_URI,
+  ORDER_PIN_DISPLAY,
 } from '@/lib/order-marker-icon';
 import { MAP_BG, WEB_MAP_TYPE } from '@/lib/yandex-map-theme';
 import {
@@ -57,12 +59,17 @@ function buildMapHtml(apiKey: string) {
     var driverPinHref = ${JSON.stringify(DRIVER_PIN_DATA_URI)};
     var orderPinHref = ${JSON.stringify(ORDER_PIN_DATA_URI)};
 
+    var orderW = ${ORDER_PIN_DISPLAY.width};
+    var orderH = ${ORDER_PIN_DISPLAY.height};
+    var driverW = ${DRIVER_PIN_DISPLAY.width};
+    var driverH = ${DRIVER_PIN_DISPLAY.height};
+
     function driverIconOptions() {
       return {
         iconLayout: 'default#image',
         iconImageHref: driverPinHref,
-        iconImageSize: [60, 60],
-        iconImageOffset: [-30, -30],
+        iconImageSize: [driverW, driverH],
+        iconImageOffset: [-driverW / 2, -driverH / 2],
         zIndex: 1000,
       };
     }
@@ -71,8 +78,8 @@ function buildMapHtml(apiKey: string) {
       return {
         iconLayout: 'default#image',
         iconImageHref: orderPinHref,
-        iconImageSize: [54, 64],
-        iconImageOffset: [-27, -64],
+        iconImageSize: [orderW, orderH],
+        iconImageOffset: [-orderW / 2, -orderH],
         zIndex: 500,
       };
     }

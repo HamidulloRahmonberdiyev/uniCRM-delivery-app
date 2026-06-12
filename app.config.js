@@ -11,9 +11,6 @@ export default {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
-      config: {
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
-      },
       infoPlist: {
         LSApplicationQueriesSchemes: [
           'yandexnavi',
@@ -33,11 +30,6 @@ export default {
       predictiveBackGestureEnabled: false,
       package: 'com.hamidullo_rahmonberdiyev.unicrmdelivery',
       permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
-      config: {
-        googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
-        },
-      },
     },
     web: {
       output: 'static',
@@ -50,6 +42,8 @@ export default {
         {
           android: {
             minSdkVersion: 26,
+            enableMinifyInReleaseBuilds: true,
+            enableShrinkResourcesInReleaseBuilds: true,
           },
         },
       ],
@@ -79,18 +73,18 @@ export default {
       [
         'expo-splash-screen',
         {
-          image: './assets/images/logo.png',
+          image: './assets/images/icon.png',
           imageWidth: 96,
           resizeMode: 'contain',
           backgroundColor: '#0088CC',
           android: {
-            image: './assets/images/logo.png',
+            image: './assets/images/icon.png',
             imageWidth: 96,
             resizeMode: 'contain',
             backgroundColor: '#0088CC',
           },
           ios: {
-            image: './assets/images/logo.png',
+            image: './assets/images/icon.png',
             imageWidth: 96,
             resizeMode: 'contain',
             backgroundColor: '#0088CC',
@@ -110,7 +104,6 @@ export default {
       eas: {
         projectId: '44d454e8-c76c-40d2-93da-ff8b4ba85fdb',
       },
-      googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
       yandexMapsApiKey: process.env.EXPO_PUBLIC_YANDEX_MAPS_API_KEY,
     },
   },
