@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ensureYamapInitialized } from '@/lib/yandex-maps';
+import '@/services/locationTrackingService';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 

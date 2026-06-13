@@ -9,6 +9,14 @@ function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/** Ikki nuqta orasidagi masofa (m) — Haversine */
+export function haversineDistanceMeters(
+  from: Coordinates,
+  to: Coordinates,
+): number {
+  return haversineDistanceKm(from, to) * 1000;
+}
+
 /** Ikki nuqta orasidagi masofa (km) — Haversine */
 export function haversineDistanceKm(
   from: Coordinates,

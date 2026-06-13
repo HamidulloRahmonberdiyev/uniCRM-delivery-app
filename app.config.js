@@ -59,6 +59,12 @@ export default {
         {
           locationWhenInUsePermission:
             'Buyurtmalargacha masofani hisoblash uchun joylashuvingiz kerak.',
+          locationAlwaysAndWhenInUsePermission:
+            'Onlayn rejimda joylashuvingizni fon rejimida ham kuzatish uchun "Har doim" ruxsatini bering.',
+          locationAlwaysPermission:
+            'Onlayn rejimda joylashuvingizni fon rejimida ham kuzatish uchun ruxsat bering.',
+          isAndroidBackgroundLocationEnabled: true,
+          isAndroidForegroundServiceEnabled: true,
         },
       ],
       [

@@ -24,6 +24,7 @@ import {
   refreshSessionIfNeeded,
   setSessionInvalidatedHandler,
 } from '@/services/api';
+import { stopTracking, ensureAutoTracking } from '@/services/locationTrackingService';
 import type { User } from '@/types/auth';
 
 interface AuthContextValue {
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const handleSessionInvalidated = useCallback(() => {
+    void stopTracking();
     clearAuthState(setUser, setPhone);
   }, []);
 
@@ -82,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (!active) return;
         if (error instanceof AuthExpiredError) {
+          void stopTracking();
           clearAuthState(setUser, setPhone);
         }
       } finally {
@@ -93,6 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (isLoading || !user?.id) return;
+    void ensureAutoTracking(user.id);
+  }, [isLoading, user?.id]);
 
   const signIn = useCallback(async (fullPhone: string, password: string) => {
     if (!password.trim()) {
@@ -118,6 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await stopTracking();
+
     const session = await loadSession();
     if (session?.accessToken) {
       await logoutApi(session.accessToken);
